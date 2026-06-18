@@ -108,7 +108,7 @@ async def rank_candidates(jd: UploadFile, candidates: UploadFile, top_k: int):
     args_list = [(feat, jd_skills, jd_years, jd_title) for feat in top_candidates]
     
     scored_candidates = []
-    with ProcessPoolExecutor(max_workers=4) as executor:
+    with ProcessPoolExecutor() as executor:
         for result in executor.map(evaluate_candidate, args_list):
             scored_candidates.append(result)
             
