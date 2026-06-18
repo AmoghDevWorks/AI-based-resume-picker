@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 
+# managing import
+from .controller.rank import rank_candidates
+
 load_dotenv()
 
 app = FastAPI()
@@ -24,14 +27,13 @@ async def root():
 
 
 @app.post("/rank")
-async def rank_candidates(
+async def rank(
     jd: UploadFile = File(...),
     candidates: UploadFile = File(...),
     top_k: int = Form(...)
 ):
-    return {
-        "jd_filename": jd.filename,
-        "candidates_filename": candidates.filename,
-        "top_k": top_k,
-        "message": "Files received successfully"
-    }
+    return await rank_candidates(
+        jd=jd,
+        candidates=candidates,
+        top_k=top_k
+    )
