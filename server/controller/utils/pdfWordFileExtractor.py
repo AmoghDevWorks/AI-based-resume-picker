@@ -1,7 +1,7 @@
 # utils/extract_text.py
 
 from io import BytesIO
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from docx import Document
 
 
