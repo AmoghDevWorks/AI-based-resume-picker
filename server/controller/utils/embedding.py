@@ -4,7 +4,9 @@ from sentence_transformers import SentenceTransformer
 import os
 
 # During offline preprocessing, we might need to download the model.
-# Set a custom cache folder if desired, or rely on the default ~/.cache/huggingface
+# We download it once and save it to server/localmodels/all-MiniLM-L6-v2
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "localmodels", "all-MiniLM-L6-v2")
+# Fallback to HF hub if local folder doesn't exist yet
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 def load_model(offline_mode=False):
@@ -12,6 +14,9 @@ def load_model(offline_mode=False):
     Loads the sentence transformer model.
     In offline mode, it allows downloading. In online mode, it strictly uses local files.
     """
+    if os.path.exists(MODEL_PATH):
+        return SentenceTransformer(MODEL_PATH)
+    
     if offline_mode:
         return SentenceTransformer(MODEL_NAME)
     else:

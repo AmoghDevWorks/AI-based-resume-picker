@@ -9,7 +9,10 @@ import re
 
 from .embedding import get_embedding, load_model
 
-CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "dataset", "cache")
+CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "localmodels", "cache")
+# Ensure the cache directory exists
+os.makedirs(CACHE_DIR, exist_ok=True)
+
 EMBEDDING_CACHE_FILE = os.path.join(CACHE_DIR, "candidate_embeddings.pkl")
 FEATURES_CACHE_FILE = os.path.join(CACHE_DIR, "candidate_features.pkl")
 BM25_CACHE_FILE = os.path.join(CACHE_DIR, "bm25_index.pkl")
