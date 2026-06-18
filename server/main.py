@@ -4,13 +4,13 @@ from dotenv import load_dotenv
 import os
 
 # managing import
-from .controller.rank import rank_candidates
+from controller.rank import rank_candidates
 
 load_dotenv()
 
 app = FastAPI()
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173/")
 
 app.add_middleware(
     CORSMiddleware,
