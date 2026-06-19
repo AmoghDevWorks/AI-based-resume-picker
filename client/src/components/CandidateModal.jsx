@@ -85,7 +85,7 @@ export default function CandidateModal() {
             <div>
               <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 4 }}>Match Score</div>
               <div style={{ fontSize: 32, fontWeight: 700, color: '#60a5fa', lineHeight: 1 }}>
-                {typeof selected.score === 'number' ? (selected.score * 100).toFixed(1) : '—'}
+                {typeof selected.score === 'number' ? (selected.score).toFixed(1) : '—'}
                 <span style={{ fontSize: 16, fontWeight: 500, color: 'rgba(96,165,250,0.5)', marginLeft: 4 }}>/ 100</span>
               </div>
             </div>
@@ -104,7 +104,7 @@ export default function CandidateModal() {
 
           <div>
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <IconFile size={14} /> AI Reasoning
+              <IconFile size={14} /> Reasoning
             </div>
             <div style={{ background: 'rgba(96,165,250,0.05)', border: '1px solid rgba(96,165,250,0.15)', borderRadius: 12, padding: 16, fontSize: 13, color: 'rgba(255,255,255,0.8)', lineHeight: 1.6 }}>
               {selected.reasoning || 'No explanation provided.'}
