@@ -54,7 +54,7 @@ function RankingApp() {
         loading, error, progress, results,
         setSelected,
         rankCandidates,
-        downloadExcel,
+        downloadCSV,
         STEPS,
     } = useAppContext()
 
@@ -223,10 +223,10 @@ function RankingApp() {
                                         </div>
                                         <button
                                             className="dl-btn"
-                                            onClick={downloadExcel}
+                                            onClick={downloadCSV}
                                             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9, border: '1px solid rgba(34,197,94,0.25)', background: 'rgba(34,197,94,0.08)', color: 'rgb(134,239,172)', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}>
                                             <IconDownload />
-                                            Export Excel
+                                            Export CSV
                                         </button>
                                     </div>
 

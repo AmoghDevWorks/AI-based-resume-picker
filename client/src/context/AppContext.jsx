@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useCallback } from 'react'
-import * as XLSX from 'xlsx'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL
 
@@ -83,11 +82,6 @@ export function AppProvider({ children }) {
             const data = await res.json()
             await progressDone
 
-            // Backend now returns:
-            //   top_100              → the ranked submission slice
-            //   all_above_threshold  → full cleaned pool
-            //   honeypots_removed    → count of discarded profiles
-            //   honeypot_ids         → their IDs
             const top100 = data.top_100 || data.results || []
 
             const candidates = top100.map((r, i) => ({
@@ -126,7 +120,6 @@ export function AppProvider({ children }) {
                 ranked: data.candidates_returned,
                 message: data.message,
                 candidates,
-                // full pool for potential "show all" feature
                 all_above_threshold: data.all_above_threshold || [],
             })
         } catch (err) {
@@ -137,82 +130,56 @@ export function AppProvider({ children }) {
         }
     }, [jdFile, candidateFile, topK, animateProgress])
 
-    // ── Excel download ───────────────────────────────────────────────
-    const downloadExcel = useCallback(() => {
+    // ── CSV download (submission format) ────────────────────────────────
+    const downloadCSV = useCallback(() => {
         if (!results?.candidates?.length) return
 
-        const rows = results.candidates.map((c) => ({
-            'Rank':                c.rank,
-            'Candidate ID':        c.id,
-            'Name':                c.name,
-            'Final Score':         c.score,
-            'TF-IDF Score':        c.tfidf_score,
-            'Skill Match Score':   c.skill_score,
-            'Experience Score':    c.exp_score,
-            'Platform Score':      c.platform_score,
-            'Notice Bonus':        c.notice_bonus,
-            'Title':               c.title,
-            'Company':             c.company,
-            'Location':            c.location,
-            'Experience':          c.experience,
-            'Availability (days)': c.availability,
-            'Open to Work':        c.open_to_work != null ? String(c.open_to_work) : '—',
-            'Salary Min (LPA)':    c.salary_min ?? '—',
-            'Salary Max (LPA)':    c.salary_max ?? '—',
-            'Top Skills':          c.skills.join(', '),
-            'GitHub Score':        c.github_score,
-            'Interview Rate':      c.interview_rate,
-            'Reasoning':           c.reasoning,
-        }))
+        // Sort by score descending, tiebreak by candidate_id ascending.
+        // Doing this in ONE sort (instead of trusting the `rank` already
+        // on each candidate) guarantees both validator rules at once:
+        // scores end up non-increasing by construction, and any tie is
+        // always broken by candidate_id ascending — no separate clamping
+        // step needed, and no tie can slip through unbroken.
+        const sorted = [...results.candidates].sort((a, b) => {
+            const scoreA = typeof a.score === 'number' ? a.score : 0
+            const scoreB = typeof b.score === 'number' ? b.score : 0
+            if (scoreB !== scoreA) return scoreB - scoreA
+            return String(a.id).localeCompare(String(b.id))
+        })
 
-        const wb = XLSX.utils.book_new()
+        // Reassign ranks 1..N from the sorted order. Don't reuse the
+        // original `rank` field — it reflects the API's response order,
+        // which is not guaranteed to already be tie-broken by id.
+        const rows = sorted.map((c, i) => {
+            const score = typeof c.score === 'number' ? c.score : 0
+            // Escape double quotes inside reasoning per CSV spec
+            const reasoning = (c.reasoning || '').replace(/"/g, '""')
+            return {
+                candidate_id: c.id,
+                rank:         i + 1,
+                score,
+                reasoning,
+            }
+        })
 
-        // Sheet 1 — Top candidates
-        const ws1 = XLSX.utils.json_to_sheet(rows)
-        // column widths
-        ws1['!cols'] = [
-            { wch: 6 },  // Rank
-            { wch: 16 }, // ID
-            { wch: 20 }, // Name
-            { wch: 13 }, // Score
-            { wch: 13 }, // TF-IDF
-            { wch: 15 }, // Skill
-            { wch: 16 }, // Exp
-            { wch: 15 }, // Platform
-            { wch: 13 }, // Bonus
-            { wch: 28 }, // Title
-            { wch: 24 }, // Company
-            { wch: 18 }, // Location
-            { wch: 13 }, // Experience
-            { wch: 18 }, // Availability
-            { wch: 12 }, // Open to Work
-            { wch: 15 }, // Salary Min
-            { wch: 15 }, // Salary Max
-            { wch: 40 }, // Skills
-            { wch: 13 }, // GitHub
-            { wch: 14 }, // Interview
-            { wch: 60 }, // Reasoning
-        ]
-        XLSX.utils.book_append_sheet(wb, ws1, 'Top Candidates')
+        // Build CSV — reasoning wrapped in quotes to allow commas inside
+        const header = 'candidate_id,rank,score,reasoning'
+        const lines = rows.map(
+            (r) => `${r.candidate_id},${r.rank},${r.score},"${r.reasoning}"`
+        )
+        const csv = [header, ...lines].join('\n')
 
-        // Sheet 2 — Summary stats
-        const stats = [
-            ['Metric', 'Value'],
-            ['Total candidates received',   results.total_candidates],
-            ['Candidates above threshold',  results.candidates_above_threshold],
-            ['Honeypots removed',           results.honeypots_removed],
-            ['Candidates skipped',          results.candidates_skipped],
-            ['Final ranked count',          results.ranked],
-        ]
-        if (results.honeypot_ids?.length) {
-            stats.push(['', ''])
-            stats.push(['Removed honeypot IDs', results.honeypot_ids.join(', ')])
-        }
-        const ws2 = XLSX.utils.aoa_to_sheet(stats)
-        ws2['!cols'] = [{ wch: 30 }, { wch: 50 }]
-        XLSX.utils.book_append_sheet(wb, ws2, 'Summary')
-
-        XLSX.writeFile(wb, 'redrob_ranking.xlsx')
+        // No BOM here: the validator does an exact string match on the
+        // header row. A leading U+FEFF gets prepended to the first cell
+        // (turning "candidate_id" into "\uFEFFcandidate_id") and fails
+        // that check. Plain UTF-8 without BOM is what's required.
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+        const url  = URL.createObjectURL(blob)
+        const a    = document.createElement('a')
+        a.href     = url
+        a.download = 'redrob_submission.csv'
+        a.click()
+        URL.revokeObjectURL(url)
     }, [results])
 
     const value = {
@@ -225,7 +192,7 @@ export function AppProvider({ children }) {
         results,
         selected, setSelected,
         rankCandidates,
-        downloadExcel,
+        downloadCSV,
         reset,
         STEPS,
     }
