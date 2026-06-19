@@ -1,9 +1,9 @@
 # job : manages everything -> from here we call for each candidate
 from fastapi import UploadFile
 
-from utils.pdfWordFileExtractor import extract_text
-from utils.embedding import get_embedding
-from utils.vectorDB import VectorDB
+from .utils.pdfWordFileExtractor import extract_text
+from .utils.embedding import get_embedding
+from .utils.vectorDB import VectorDB
 
 # Create a single VectorDB object
 db = VectorDB(
@@ -27,6 +27,7 @@ async def rank_candidates(
     # Store embedding in FAISS
     db.insert([jd_embedding], ids=["candidate_1"])
     db.save()
+
 
 
 
