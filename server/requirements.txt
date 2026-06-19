@@ -6,3 +6,5 @@ pypdf
 python-docx
 sentence-transformers
 faiss-cpu
+pandas
+scikit-learn
