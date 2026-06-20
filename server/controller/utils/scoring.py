@@ -126,7 +126,6 @@ class Candidate:
 
     @property
     def candidate_id(self) -> str:
-        # Some fallback logic to ensure candidate_id is always available
         return self.raw.get("candidate_id") or self.raw.get("id") or f"row_{self.row_id}"
 
     @property
@@ -152,7 +151,7 @@ class Candidate:
             ),
             reverse=True,
         )
-        
+
         top_skills = ", ".join(s.get("name", "") for s in skills_sorted[:8] if isinstance(s, dict))
         latest = self.career_history[0] if self.career_history and isinstance(self.career_history[0], dict) else {}
 
@@ -210,22 +209,24 @@ class ResumeTextBuilder:
         yoe = p.get("years_of_experience", 0)
         summary = p.get("summary", "")
 
-        if headline: self._parts.append(str(headline))
+        if headline:      self._parts.append(str(headline))
         if current_title:
             self._parts.append(str(current_title))
             self._parts.append(f"Role: {current_title}")
-        if company: self._parts.append(f"Company: {company}")
-        if industry: self._parts.append(f"Industry: {industry}")
-        if yoe: self._parts.append(f"{yoe} years experience")
-        if summary: self._parts.append(str(summary))
+        if company:       self._parts.append(f"Company: {company}")
+        if industry:      self._parts.append(f"Industry: {industry}")
+        if yoe:           self._parts.append(f"{yoe} years experience")
+        if summary:       self._parts.append(str(summary))
 
     def _add_skills_block(self):
         tokens = []
         for s in self.c.skills:
-            if not isinstance(s, dict): continue
+            if not isinstance(s, dict):
+                continue
             name = s.get("name", "").strip()
             prof = s.get("proficiency", "")
-            if not name: continue
+            if not name:
+                continue
             tokens.append(name)
             if prof in ("expert", "advanced"):
                 tokens.append(name)
@@ -242,18 +243,20 @@ class ResumeTextBuilder:
 
     def _add_career_block(self):
         for job in self.c.career_history:
-            if not isinstance(job, dict): continue
+            if not isinstance(job, dict):
+                continue
             title = job.get("title", "")
-            co = job.get("company", "")
-            ind = job.get("industry", "")
-            desc = str(job.get("description", "") or "").strip()[:500]
-            line = " | ".join(filter(None, [title, co, ind, desc]))
+            co    = job.get("company", "")
+            ind   = job.get("industry", "")
+            desc  = str(job.get("description", "") or "").strip()[:500]
+            line  = " | ".join(filter(None, [title, co, ind, desc]))
             if line.strip():
                 self._parts.append(line.strip())
 
     def _add_education_block(self):
         for edu in self.c.education:
-            if not isinstance(edu, dict): continue
+            if not isinstance(edu, dict):
+                continue
             line = " ".join(filter(None, [
                 edu.get("degree", ""),
                 edu.get("field_of_study", ""),
@@ -265,8 +268,9 @@ class ResumeTextBuilder:
     def _add_certification_block(self):
         cert_parts = []
         for cert in self.c.certifications:
-            if not isinstance(cert, dict): continue
-            name = cert.get("name", "")
+            if not isinstance(cert, dict):
+                continue
+            name   = cert.get("name", "")
             issuer = cert.get("issuer", "")
             if name:
                 cert_parts.append(f"{name} {issuer}".strip())
@@ -312,7 +316,7 @@ class SkillMatchScorer(CandidateScorer):
                 skill_weights[name] = max(skill_weights.get(name, 0), w)
 
         matched_weight = 0.0
-        total_weight = len(jd.skill_keywords)
+        total_weight   = len(jd.skill_keywords)
         for kw in jd.skill_keywords:
             if SkillVocabulary.contains(candidate_text, kw):
                 matched_weight += skill_weights.get(kw, 1.0)
@@ -326,9 +330,9 @@ class ExperienceScorer(CandidateScorer):
     name = "exp_score"
 
     def __init__(self, exp_min: int, exp_ideal: int, exp_max: int):
-        self.exp_min = exp_min
+        self.exp_min   = exp_min
         self.exp_ideal = exp_ideal
-        self.exp_max = exp_max
+        self.exp_max   = exp_max
 
     def score(self, candidate: Candidate, jd: JobDescription) -> float:
         yoe = candidate.years_of_experience
@@ -387,7 +391,7 @@ class PlatformSignalScorer(CandidateScorer):
 
         weighted_parts.append((self._recency_score(rs.get("last_active_date", "")), 0.10))
 
-        total_weight = sum(w for _, w in weighted_parts)
+        total_weight   = sum(w for _, w in weighted_parts)
         weighted_score = sum(s * w for s, w in weighted_parts) / total_weight
         return round(min(100.0, weighted_score), 2)
 
@@ -409,16 +413,19 @@ class TfidfSimilarityScorer:
 
     def __init__(self, vectorizer: Optional[TfidfVectorizer] = None):
         self.vectorizer = vectorizer or TfidfVectorizer(
-            stop_words="english", sublinear_tf=True, ngram_range=(1, 2), max_features=150_000,
+            stop_words="english",
+            sublinear_tf=True,
+            ngram_range=(1, 2),
+            max_features=150_000,
         )
 
     def score_all(self, jd_text: str, resume_texts: list) -> np.ndarray:
         if not resume_texts:
             return np.array([])
         all_texts = [jd_text] + resume_texts
-        matrix = self.vectorizer.fit_transform(all_texts)
-        raw = cosine_similarity(matrix[0], matrix[1:]).flatten()
-        lo, hi = raw.min(), raw.max()
+        matrix    = self.vectorizer.fit_transform(all_texts)
+        raw       = cosine_similarity(matrix[0], matrix[1:]).flatten()
+        lo, hi    = raw.min(), raw.max()
         return ((raw - lo) / (hi - lo) * 100) if hi > lo else raw * 100
 
 
@@ -429,13 +436,13 @@ class WeightedScoreAggregator:
     def __init__(self, config: ScoringConfig, scorers: list):
         self.weights = {
             TfidfSimilarityScorer.name: config.w_tfidf,
-            SkillMatchScorer.name: config.w_skills,
-            ExperienceScorer.name: config.w_experience,
-            PlatformSignalScorer.name: config.w_platform,
+            SkillMatchScorer.name:      config.w_skills,
+            ExperienceScorer.name:      config.w_experience,
+            PlatformSignalScorer.name:  config.w_platform,
         }
 
     def aggregate(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
+        df       = df.copy()
         weighted = sum((self.weights[col] / 100) * df[col] for col in self.weights if col in df.columns)
         df["final_score"] = weighted.round(2)
         return df
@@ -448,19 +455,19 @@ class NoticePeriodBonusDecorator:
             return 0.0
         try:
             d = int(days)
-        except ValueError:
+        except (ValueError, TypeError):
             return 0.0
-            
-        if d == 0: return 5.0
-        if d <= 15: return 4.0
-        if d <= 30: return 3.0
-        if d <= 60: return 1.0
+
+        if d == 0:   return 5.0
+        if d <= 15:  return 4.0
+        if d <= 30:  return 3.0
+        if d <= 60:  return 1.0
         return -3.0
 
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
         df["notice_bonus"] = df["notice_period_days"].apply(self._bonus)
-        df["final_score"] = (df["final_score"] + df["notice_bonus"]).round(2)
+        df["final_score"]  = (df["final_score"] + df["notice_bonus"]).round(2)
         return df
 
 
@@ -477,9 +484,9 @@ class MinimumScoreFilter:
 # ════════════════════════════════════════════════════════════
 @dataclass
 class RankingResult:
-    dataframe: pd.DataFrame
+    dataframe:        pd.DataFrame
     candidates_by_id: Dict[str, Candidate] = field(default_factory=dict)
-    skipped_records: int = 0
+    skipped_records:  int = 0
 
 
 class CandidateRankingEngine:
@@ -491,24 +498,25 @@ class CandidateRankingEngine:
             PlatformSignalScorer(),
         ]
         self.tfidf_scorer = TfidfSimilarityScorer()
-        self.aggregator = WeightedScoreAggregator(self.config, self.scorers)
+        self.aggregator   = WeightedScoreAggregator(self.config, self.scorers)
         self.notice_bonus = NoticePeriodBonusDecorator()
         self.score_filter = MinimumScoreFilter(self.config.min_final_score)
 
     def run(self, jd: JobDescription, raw_candidates: List[dict]) -> RankingResult:
-        meta_rows = []
+        # ── Phase 1: build candidates + score everything except TF-IDF ──
+        meta_rows    = []
         resume_texts = []
-        score_cols = {s.name: [] for s in self.scorers}
-        skipped = 0
-        candidates_by_id = {}
+        score_cols   = {s.name: [] for s in self.scorers}
+        skipped      = 0
+        candidates_by_id: Dict[str, Candidate] = {}
 
         for i, raw in enumerate(raw_candidates, 1):
             if not isinstance(raw, dict):
                 skipped += 1
                 continue
-                
+
             candidate = Candidate(raw, i)
-            text = candidate.to_resume_text()
+            text      = candidate.to_resume_text()
             if not text.strip():
                 skipped += 1
                 continue
@@ -517,18 +525,44 @@ class CandidateRankingEngine:
             resume_texts.append(text)
             for scorer in self.scorers:
                 score_cols[scorer.name].append(scorer.score(candidate, jd))
-                
+
             candidates_by_id[candidate.candidate_id] = candidate
 
         if not meta_rows:
             return RankingResult(pd.DataFrame(), candidates_by_id, skipped)
 
+        # ── Phase 2: assemble dataframe with non-TF-IDF scores ──────────
         df = pd.DataFrame(meta_rows)
         for name, values in score_cols.items():
             df[name] = values
 
-        df[TfidfSimilarityScorer.name] = self.tfidf_scorer.score_all(jd.text, resume_texts).round(2)
+        # ── Phase 3: honeypot filter BEFORE TF-IDF ──────────────────────
+        # We need a placeholder final_score column so HoneypotFilter.apply()
+        # can sort — it will be overwritten by the real aggregation below.
+        df[TfidfSimilarityScorer.name] = 0.0
+        df["final_score"]              = 0.0
 
+        from controller.utils.honeypotPenalty import HoneypotFilter
+        df, removed_ids = HoneypotFilter().apply(df, candidates_by_id)
+
+        if df.empty:
+            return RankingResult(pd.DataFrame(), candidates_by_id, skipped)
+
+        # ── Phase 4: keep only resume texts for surviving candidates ─────
+        # meta_rows and resume_texts are parallel lists; filter together.
+        surviving_ids = set(df["candidate_id"])
+        filtered_texts = [
+            text
+            for text, row in zip(resume_texts, meta_rows)
+            if row["candidate_id"] in surviving_ids
+        ]
+
+        # ── Phase 5: TF-IDF on the smaller, clean candidate set ─────────
+        df[TfidfSimilarityScorer.name] = self.tfidf_scorer.score_all(
+            jd.text, filtered_texts
+        ).round(2)
+
+        # ── Phase 6: aggregate → rank → notice bonus → rank → filter ────
         df = self.aggregator.aggregate(df)
         df = self._rank(df)
 
@@ -543,6 +577,6 @@ class CandidateRankingEngine:
     @staticmethod
     def _rank(df: pd.DataFrame) -> pd.DataFrame:
         df = df.sort_values("final_score", ascending=False).reset_index(drop=True)
-        df.index += 1
-        df.index.name = "rank"
+        df.index      += 1
+        df.index.name  = "rank"
         return df
