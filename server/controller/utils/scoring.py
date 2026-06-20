@@ -480,15 +480,20 @@ class MinimumScoreFilter:
 
 
 # ════════════════════════════════════════════════════════════
-# CandidateRankingEngine
+# RankingResult
 # ════════════════════════════════════════════════════════════
 @dataclass
 class RankingResult:
-    dataframe:        pd.DataFrame
-    candidates_by_id: Dict[str, Candidate] = field(default_factory=dict)
-    skipped_records:  int = 0
+    dataframe:         pd.DataFrame
+    candidates_by_id:  Dict[str, Candidate] = field(default_factory=dict)
+    skipped_records:   int = 0
+    honeypots_removed: int = 0
+    honeypot_ids:      List[str] = field(default_factory=list)
 
 
+# ════════════════════════════════════════════════════════════
+# CandidateRankingEngine
+# ════════════════════════════════════════════════════════════
 class CandidateRankingEngine:
     def __init__(self, config: Optional[ScoringConfig] = None):
         self.config = config or ScoringConfig()
@@ -529,7 +534,13 @@ class CandidateRankingEngine:
             candidates_by_id[candidate.candidate_id] = candidate
 
         if not meta_rows:
-            return RankingResult(pd.DataFrame(), candidates_by_id, skipped)
+            return RankingResult(
+                pd.DataFrame(),
+                candidates_by_id,
+                skipped,
+                honeypots_removed=0,
+                honeypot_ids=[],
+            )
 
         # ── Phase 2: assemble dataframe with non-TF-IDF scores ──────────
         df = pd.DataFrame(meta_rows)
@@ -537,8 +548,8 @@ class CandidateRankingEngine:
             df[name] = values
 
         # ── Phase 3: honeypot filter BEFORE TF-IDF ──────────────────────
-        # We need a placeholder final_score column so HoneypotFilter.apply()
-        # can sort — it will be overwritten by the real aggregation below.
+        # Placeholder columns so HoneypotFilter.apply() can sort.
+        # These will be overwritten by the real aggregation below.
         df[TfidfSimilarityScorer.name] = 0.0
         df["final_score"]              = 0.0
 
@@ -546,10 +557,15 @@ class CandidateRankingEngine:
         df, removed_ids = HoneypotFilter().apply(df, candidates_by_id)
 
         if df.empty:
-            return RankingResult(pd.DataFrame(), candidates_by_id, skipped)
+            return RankingResult(
+                pd.DataFrame(),
+                candidates_by_id,
+                skipped,
+                honeypots_removed=len(removed_ids),
+                honeypot_ids=removed_ids,
+            )
 
         # ── Phase 4: keep only resume texts for surviving candidates ─────
-        # meta_rows and resume_texts are parallel lists; filter together.
         surviving_ids = set(df["candidate_id"])
         filtered_texts = [
             text
@@ -572,7 +588,13 @@ class CandidateRankingEngine:
         df = self.score_filter.apply(df)
         df = self._rank(df)
 
-        return RankingResult(df, candidates_by_id, skipped)
+        return RankingResult(
+            df,
+            candidates_by_id,
+            skipped,
+            honeypots_removed=len(removed_ids),
+            honeypot_ids=removed_ids,
+        )
 
     @staticmethod
     def _rank(df: pd.DataFrame) -> pd.DataFrame:
