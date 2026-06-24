@@ -1,0 +1,117 @@
+# Redrob Hackathon — Submission Metadata Template
+#
+# Copy this file to your repo root as `submission_metadata.yaml` and fill it in.
+# The fields here should match what you submit via the portal at upload time.
+# Stage 3 review uses this file to verify your portal metadata.
+
+# ============================================================================
+# Team identity
+# ============================================================================
+team_name: "VijayaDhanush"  # Used in leaderboard and announcements
+
+primary_contact:
+  name: "Amogh Kashyap S N"
+  email: "amoghkashyapsn.1si23cs015@gmail.com"   # Used for all organizer communication
+  phone: "+91-9482024180"        # Used for top-50 / top-10 outreach
+
+team_members:
+  - name: "Amogh Kashyap S N"
+    email: "amoghkashyapsn.1si23cs015@gmail.com"
+    role: "Team Lead, ML Engineer"
+  - name: "Bharat S"
+    email: "devbharu04@gmail.com"
+    role: "ML Engineer"
+  - name: "Chetan Kumar R S"
+    email: "chetankumarrs.1si23cs036@gmail.com"
+    role: "Data Engineer"
+  - name: "Madhu Sudhan A V"
+    email: "madhusudhan.1si23cs103@gmail.com"
+    role: "System Developer"
+
+# ============================================================================
+# Code and reproducibility
+# ============================================================================
+github_repo: "https://github.com/AmoghDevWorks/AI-based-resume-picker"
+
+sandbox_link: "https://huggingface.co/spaces/YOUR_USERNAME/redrob-ranker"
+# TODO: Replace YOUR_USERNAME with your actual HuggingFace username before submitting.
+
+reproduce_command: |
+  # Backend (from the server/ directory):
+  cd server && pip install -r requirements.txt && uvicorn main:app --reload
+  # Frontend (from the client/ directory, in a separate terminal):
+  cd client && npm install && npm run dev
+
+# ============================================================================
+# Compute environment
+# ============================================================================
+compute:
+  platform: "MacBook Pro M2"
+  cpu_cores: 8
+  ram_gb: 16
+  python_version: "3.11.4"
+  os: "macOS 14.2"
+  uses_gpu_for_inference: false    # Pure CPU pipeline — sklearn TF-IDF + cosine similarity
+  has_network_during_ranking: false  # No external API calls; all scoring is local
+  pre_computation_required: false   # TF-IDF vectorizer is fit at runtime on the candidate pool
+  pre_computation_time_minutes: 0
+
+# ============================================================================
+# AI tools declaration
+# ============================================================================
+ai_tools_used:
+  - "ChatGPT"         # Project planning, feature brainstorming, and task breakdown
+  - "Claude"          # Architecture discussion, code review, and honeypot signal design
+  - "GitHub Copilot"  # Autocomplete during development
+
+ai_usage_summary: |
+  ChatGPT was used during the planning phase — brainstorming the overall project
+  structure (client/server split), breaking down tasks across team members,
+  drafting the scoring component checklist, and deciding on the honeypot signal
+  categories before any code was written.
+
+  Claude was used for architecture discussion, reviewing the scoring pipeline
+  design, iterating on the HoneypotFilter signal logic, and code review of the
+  ranking engine.
+
+  GitHub Copilot was used for autocomplete and boilerplate during active
+  development of both the FastAPI backend (server/) and the frontend (client/).
+
+  No candidate data or job description text was fed to any external LLM at any
+  point. All ranking and scoring logic runs fully offline using scikit-learn,
+  pandas, and numpy.
+
+# ============================================================================
+# Approach summary
+# ============================================================================
+methodology_summary: |
+  Multi-signal, weighted scoring pipeline with an upstream honeypot filter.
+
+  Scoring has four components combined into a weighted final score (weights
+  sum to 100): TF-IDF cosine similarity between the JD and a structured resume
+  text (45%), skill-match with proficiency-weighted partial credit (25%),
+  platform/behavioral signals — profile completeness, GitHub activity, skill
+  assessments, recruiter responsiveness, recency (25%), and experience-curve
+  scoring against a configurable min/ideal/max target (5%). A notice-period
+  bonus/penalty of ±3–5 points is applied post-aggregation.
+
+  Before TF-IDF is computed, a 15-signal HoneypotFilter removes fraudulent
+  profiles outright (any single trigger = removal). Signals cover impossible
+  tenures at known young companies, timeline drift, skill inflation, zero-years
+  expert claims, overlapping/duplicate job entries, future dates, suspiciously
+  perfect paper profiles, excessive job hopping, unrealistic promotion velocity,
+  impossible skill chronology, education-employment inconsistency, simultaneous
+  full-time jobs, keyword stuffing, and activity contradiction.
+
+  The pipeline runs end-to-end on CPU in well under 5 minutes for typical
+  candidate pools, with no network access required at runtime.
+
+# ============================================================================
+# Declarations
+# ============================================================================
+declarations:
+  read_submission_spec: true
+  code_is_original_work: true
+  no_collusion: true
+  honeypot_check_done: true   # 15 explicit honeypot signals implemented in controller/utils/honeypotPenalty.py
+  reproduction_tested: true
