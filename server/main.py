@@ -6,6 +6,10 @@ import os
 # managing import
 from controller.rank import rank_candidates
 
+#for docker
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
 load_dotenv()
 
 app = FastAPI()
@@ -21,9 +25,15 @@ app.add_middleware(
 )
 
 
+# @app.get("/")
+# async def root():
+#     return {"message": "Redrob Candidate Ranking API is running"}
+
+#for docker
+app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 @app.get("/")
-async def root():
-    return {"message": "Redrob Candidate Ranking API is running"}
+async def serve_react():
+    return FileResponse("static/index.html")
 
 
 @app.post("/rank")

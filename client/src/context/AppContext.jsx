@@ -65,7 +65,7 @@ export function AppProvider({ children }) {
             formData.append('candidates', candidateFile)
             formData.append('top_k', String(topK))
 
-            const res = await fetch(`${BACKEND_URL}rank`, {
+            const res = await fetch(`${BACKEND_URL}/rank`, {
                 method: 'POST',
                 body: formData,
             })
