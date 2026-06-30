@@ -33,7 +33,7 @@ team_members:
 # ============================================================================
 github_repo: "https://github.com/AmoghDevWorks/AI-based-resume-picker"
 
-sandbox_link: "https://huggingface.co/spaces/YOUR_USERNAME/redrob-ranker"
+sandbox_link: "https://hub.docker.com/r/amoghkashyapsn/redrobproj"
 # TODO: Replace YOUR_USERNAME with your actual HuggingFace username before submitting.
 
 reproduce_command: |
