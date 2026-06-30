@@ -65,6 +65,21 @@ Public API
 ----------
     from controller.utils.honeypotPenalty import HoneypotFilter
     cleaned_df, removed_ids = HoneypotFilter().apply(df, candidates_by_id)
+
+PERFORMANCE NOTE
+----------------
+This module runs 15 checks per candidate. At 100k candidates that's up
+to 1.5M check invocations, so the per-check cost matters for the
+competition's 5-minute runtime budget. The logic, thresholds, and
+output of every check below are unchanged from the original — only
+redundant per-call work has been removed:
+  - Year-parsing regex is compiled once at module load instead of being
+    rebuilt by re.fullmatch on every call.
+  - `is_honeypot` short-circuits and returns on the first triggered
+    check instead of always running all 15 (policy is "any signal =
+    removal", so finding one is sufficient — this does not change which
+    candidates get removed, only how many checks run before we know).
+  - Hot-path helpers avoid rebuilding small lookups inside loops.
 """
 
 from __future__ import annotations
@@ -168,6 +183,12 @@ def _title_tier(title: str) -> int | None:
 # ════════════════════════════════════════════════════════════
 _CURRENT_YEAR = datetime.now().year
 
+# Compiled once at import time instead of being rebuilt by re.fullmatch
+# on every _parse_year() call — _parse_year runs many times per candidate
+# (every job date, every education date), so at 100k candidates this is
+# called well into the millions of times.
+_YEAR_RE = re.compile(r"\d{4}")
+
 
 def _parse_year(value) -> int | None:
     """Extract a 4-digit year from int, float, or string."""
@@ -175,7 +196,7 @@ def _parse_year(value) -> int | None:
         return None
     try:
         s = str(int(float(str(value).strip())))
-        if re.fullmatch(r"\d{4}", s):
+        if _YEAR_RE.fullmatch(s):
             return int(s)
     except (ValueError, TypeError):
         pass
@@ -191,11 +212,26 @@ def _current_year_float() -> float:
     return now.year + (now.month - 1) / 12
 
 
+# Cache "now" once per HoneypotFilter.apply() call instead of recomputing
+# it on every single _tenure_years/_job_interval call (these are called
+# multiple times per candidate, across thousands of candidates). Module-
+# level so existing call sites (_tenure_years, _job_interval) don't need
+# their signatures changed.
+_NOW_FLOAT_CACHE: float | None = None
+
+
+def _now_float() -> float:
+    global _NOW_FLOAT_CACHE
+    if _NOW_FLOAT_CACHE is None:
+        _NOW_FLOAT_CACHE = _current_year_float()
+    return _NOW_FLOAT_CACHE
+
+
 def _tenure_years(job: dict) -> float | None:
     start   = _parse_year(job.get("start_year") or job.get("start_date"))
     end_raw = job.get("end_year") or job.get("end_date") or "present"
     if str(end_raw).lower() in ("present", "current", "now", ""):
-        end = _current_year_float()
+        end = _now_float()
     else:
         end = _parse_year(end_raw)
     if start is None or end is None:
@@ -208,7 +244,7 @@ def _job_interval(job: dict) -> Tuple[float, float] | None:
     start   = _parse_year(job.get("start_year") or job.get("start_date"))
     end_raw = job.get("end_year") or job.get("end_date") or "present"
     end = (
-        _current_year_float()
+        _now_float()
         if str(end_raw).lower() in ("present", "current", "now", "")
         else _parse_year(end_raw)
     )
@@ -223,15 +259,8 @@ def _job_interval(job: dict) -> Tuple[float, float] | None:
 class _HoneypotDetector:
     def __init__(self, cfg: HoneypotConfig):
         self.cfg = cfg
-
-    def is_honeypot(self, candidate) -> Tuple[bool, List[str]]:
-        """
-        Run all checks. Returns (flagged: bool, reasons: list[str]).
-        A single triggered check is enough to flag the candidate.
-        """
-        reasons: List[str] = []
-
-        checks = [
+        # Built once per detector instance, not per candidate.
+        self._checks = (
             # Original signals
             self._impossible_tenure,
             self._timeline_mismatch,
@@ -249,27 +278,43 @@ class _HoneypotDetector:
             self._simultaneous_fulltime_jobs,
             self._keyword_stuffing,
             self._activity_contradiction,
-        ]
-        for check in checks:
+        )
+
+    def is_honeypot(self, candidate) -> Tuple[bool, List[str]]:
+        """
+        Run checks. Returns (flagged: bool, reasons: list[str]).
+
+        Policy is "any triggered signal = removal", and callers
+        (HoneypotFilter.apply) only ever check truthiness of the
+        returned reasons list / flagged bool — they don't need every
+        reason enumerated for a candidate that's already being removed.
+        So we short-circuit on the first hit instead of always running
+        all 15 checks. This does not change which candidates are
+        flagged (identical to running all checks and taking len > 0),
+        it only reduces wasted work for already-flagged candidates.
+        """
+        for check in self._checks:
             flagged, reason = check(candidate)
             if flagged:
-                reasons.append(reason)
-
-        return bool(reasons), reasons
+                return True, [reason]
+        return False, []
 
     # ════════════════════════════════════════════════════════════
     # ORIGINAL SIGNALS
     # ════════════════════════════════════════════════════════════
 
     def _impossible_tenure(self, candidate) -> Tuple[bool, str]:
+        founding_years = self.cfg.company_founding_years
         for job in candidate.career_history:
             if not isinstance(job, dict):
                 continue
             company = str(job.get("company", "") or "").lower().strip()
-            dur     = _tenure_years(job)
+            if not company:
+                continue
+            dur = _tenure_years(job)
             if dur is None:
                 continue
-            for known_co, founded in self.cfg.company_founding_years.items():
+            for known_co, founded in founding_years.items():
                 if known_co in company:
                     company_age = _CURRENT_YEAR - founded
                     if dur > company_age + 0.5:
@@ -339,6 +384,9 @@ class _HoneypotDetector:
             if iv is not None:
                 intervals.append((*iv, str(job.get("title", ""))))
 
+        if len(intervals) < 2:
+            return False, ""
+
         intervals.sort(key=lambda x: x[0])
         tol = self.cfg.overlap_tolerance_months / 12
         for i in range(len(intervals) - 1):
@@ -357,10 +405,11 @@ class _HoneypotDetector:
         for job in candidate.career_history:
             if not isinstance(job, dict):
                 continue
+            title = job.get("title", "")
             for key in ("start_year", "end_year", "start_date", "end_date"):
                 val = job.get(key)
                 if val and str(val).lower() not in ("present", "current", "now"):
-                    fields.append((val, f"career '{job.get('title', '')}' {key}"))
+                    fields.append((val, f"career '{title}' {key}"))
         for edu in candidate.education:
             if not isinstance(edu, dict):
                 continue
@@ -380,13 +429,15 @@ class _HoneypotDetector:
             completeness = float(rs.get("profile_completeness_score", 0) or 0)
         except (ValueError, TypeError):
             completeness = 0.0
+        if completeness <= 95:
+            return False, ""
         try:
             raw_gh = rs.get("github_activity_score")
             github = float(raw_gh) if raw_gh is not None else -1.0
         except (ValueError, TypeError):
             github = -1.0
         assessments = rs.get("skill_assessment_scores", {})
-        if completeness > 95 and github == 0 and not assessments:
+        if github == 0 and not assessments:
             return True, (
                 f"SUSPICIOUSLY_PERFECT: Profile completeness={completeness:.0f} but "
                 f"github_score=0 and no skill assessments — inflated paper profile"
@@ -436,8 +487,10 @@ class _HoneypotDetector:
                 continue
             title = str(job.get("title", "") or "")
             tier  = _title_tier(title)
-            iv    = _job_interval(job)
-            if tier is not None and iv is not None:
+            if tier is None:
+                continue
+            iv = _job_interval(job)
+            if iv is not None:
                 timed_roles.append((iv[0], tier, title))
 
         if len(timed_roles) < 2:
@@ -579,11 +632,12 @@ class _HoneypotDetector:
         events.sort(key=lambda e: (e[0], e[1]))
 
         active = 0
+        limit  = self.cfg.simultaneous_job_limit
         for _year, delta in events:
             active += delta
-            if active > self.cfg.simultaneous_job_limit:
+            if active > limit:
                 return True, (
-                    f"SIMULTANEOUS_JOBS: More than {self.cfg.simultaneous_job_limit} "
+                    f"SIMULTANEOUS_JOBS: More than {limit} "
                     f"jobs active concurrently (beyond "
                     f"{self.cfg.overlap_tolerance_months}-month tolerance)"
                 )
@@ -678,17 +732,27 @@ class HoneypotFilter:
         if df.empty:
             return df, []
 
+        # Reset the per-run "now" cache so each apply() call uses a
+        # consistent, freshly-computed timestamp rather than reusing a
+        # stale value from a previous request in a long-lived process.
+        global _NOW_FLOAT_CACHE
+        _NOW_FLOAT_CACHE = None
+
         remove_ids: List[str]            = []
         flag_map:   Dict[str, List[str]] = {}
+        is_honeypot = self._detector.is_honeypot  # bind once, avoid attr lookup per iteration
 
         for cid in df["candidate_id"]:
             candidate = candidates_by_id.get(cid)
             if candidate is None:
                 continue
-            flagged, reasons = self._detector.is_honeypot(candidate)
+            flagged, reasons = is_honeypot(candidate)
             if flagged:
                 remove_ids.append(cid)
-                flag_map[cid] = reasons
+                if len(flag_map) < 5:
+                    # Only need the first few for the debug print below —
+                    # no need to retain reasons for every flagged candidate.
+                    flag_map[cid] = reasons
 
         remove_set = set(remove_ids)
 
@@ -698,7 +762,7 @@ class HoneypotFilter:
                 + ", ".join(remove_ids[:10])
                 + ("..." if len(remove_ids) > 10 else "")
             )
-            for cid, reasons in list(flag_map.items())[:5]:
+            for cid, reasons in flag_map.items():
                 print(f"  -> {cid}: {' | '.join(reasons)}")
 
         cleaned_df = df[~df["candidate_id"].isin(remove_set)].copy()

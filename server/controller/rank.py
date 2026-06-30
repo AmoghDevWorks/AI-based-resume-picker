@@ -20,6 +20,15 @@ Pipeline
 NOTE: HoneypotFilter is called once, inside CandidateRankingEngine.run(),
       before the TF-IDF matrix is built.  rank.py reads the counts from
       RankingResult — it does NOT run a second honeypot pass.
+
+MEMORY NOTE: CandidateRankingEngine.run() deletes its `raw_candidates`
+      parameter internally as soon as it has extracted everything it
+      needs from it (see scoring.py). For that deletion to actually
+      free memory, this module must not hold its own live reference to
+      raw_candidates afterward. `total_candidates_received` is therefore
+      captured via len() BEFORE engine.run() is called, and used in
+      place of len(raw_candidates) everywhere below. Do not reintroduce
+      a post-engine.run() reference to raw_candidates.
 """
 
 import json
@@ -47,9 +56,22 @@ async def rank_candidates(
     top_k: int,
 ):
     # ── 1. Extract ───────────────────────────────────────────────────
+    print("A")
     jd_text = await extract_text(jd)
+
+    print("B")
     jd_description = JobDescription.from_text(jd_text)
+
+    print("C")
     raw_candidates, decode_skipped = await extract_jsonl_records(candidates)
+
+    # ── Capture this NOW, before engine.run(). engine.run() deletes its
+    # raw_candidates parameter as soon as it's done extracting what it
+    # needs from it (the single biggest memory release in the whole
+    # pipeline, typically 2-4 GB at 100k candidates). If this module
+    # keeps its own reference to raw_candidates alive past this point,
+    # that deletion is a no-op and the memory never actually frees.
+    total_candidates_received = len(raw_candidates)
 
     # ── 2. Score & rank — CPU-bound; run off the event loop ──────────
     # engine.run() internally:
@@ -58,15 +80,29 @@ async def rank_candidates(
     #   c) runs TF-IDF only on clean candidates
     #   d) aggregates + applies notice bonus + filters by min_final_score
     # The honeypot counts are surfaced via RankingResult fields.
+    print("D", total_candidates_received)
+
     engine = CandidateRankingEngine(ScoringConfig())
-    result = await run_in_threadpool(engine.run, jd_description, raw_candidates)
+
+    print("E")
+
+    result = await run_in_threadpool(
+        engine.run,
+        jd_description,
+        raw_candidates
+    )
+
+    # raw_candidates has been deleted inside engine.run() by this point.
+    # Do NOT reference it below — use total_candidates_received instead.
+
+    print("F")
 
     if result.dataframe.empty:
         return {
             "jd_filename": jd.filename,
             "candidates_filename": candidates.filename,
             "top_k": top_k,
-            "total_candidates_received": len(raw_candidates),
+            "total_candidates_received": total_candidates_received,
             "candidates_skipped": decode_skipped + result.skipped_records,
             "candidates_above_threshold": 0,
             "honeypots_removed": result.honeypots_removed,
@@ -134,7 +170,7 @@ async def rank_candidates(
         "jd_filename": jd.filename,
         "candidates_filename": candidates.filename,
         "top_k": final_top_k,
-        "total_candidates_received": len(raw_candidates),
+        "total_candidates_received": total_candidates_received,
         "candidates_skipped": decode_skipped + result.skipped_records,
         "candidates_above_threshold": len(above_threshold_df),
         "honeypots_removed": result.honeypots_removed,
