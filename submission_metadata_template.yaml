@@ -36,11 +36,13 @@ github_repo: "https://github.com/AmoghDevWorks/AI-based-resume-picker"
 sandbox_link: "https://hub.docker.com/r/amoghkashyapsn/redrobproj"
 # TODO: Replace YOUR_USERNAME with your actual HuggingFace username before submitting.
 
-reproduce_command: |
+reproduce_command_for_github: |
   # Backend (from the server/ directory):
   cd server && pip install -r requirements.txt && uvicorn main:app --reload
   # Frontend (from the client/ directory, in a separate terminal):
   cd client && npm install && npm run dev
+  
+reproduce_command_for_docker: "Refer file `docker.md`."
 
 # ============================================================================
 # Compute environment
